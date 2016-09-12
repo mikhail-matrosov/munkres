@@ -291,7 +291,7 @@ __all__     = ['Munkres', 'make_cost_matrix']
 # ---------------------------------------------------------------------------
 
 # Info about the module
-__version__   = "1.0.7a"
+__version__   = "1.1.0a"
 __author__    = "Brian Clapper, bmc@clapper.org"
 __url__       = "http://software.clapper.org/munkres/"
 __copyright__ = "(c) 2008 Brian M. Clapper"
@@ -379,8 +379,8 @@ class Munkres:
 
         self.Z0_r = 0
         self.Z0_c = 0
-        self.path = self.__make_matrix(self.n * 2, 0)
-        self.marked = self.__make_matrix(self.n, 0)
+        self.path = np.zeros((self.n*2, 2), dtype=np.int32)
+        self.marked = np.zeros((self.n, self.n), dtype=np.int32)
 
         done = False
         step = 1
@@ -407,17 +407,6 @@ class Munkres:
                     results += [(i, j)]
 
         return results
-
-    def __copy_matrix(self, matrix):
-        """Return an exact copy of the supplied matrix"""
-        return matrix.copy()
-
-
-    def __make_matrix(self, n, val):
-        """Create an *n*x*n* matrix, populating it with the specific value."""
-        matrix = np.empty((n, n))
-        matrix.fill(val)
-        return matrix
 
     def __step1(self):
         """
@@ -479,9 +468,14 @@ class Munkres:
         row = -1
         col = -1
         star_col = -1
+        
+        # find zeros
+        rz, cz = np.where(self.C == 0)
+        if rz.shape[0] == 0:
+            return 6
 
         while not done:
-            (row, col) = self.__find_a_zero()
+            (row, col) = self.__find_a_zero_where(rz, cz)
             if row < 0:
                 done = True
                 step = 6
@@ -567,7 +561,6 @@ class Munkres:
 
     def __find_a_zero(self):
         """Find the first uncovered element with value 0"""
-
         rz, cz = np.where(self.C == 0)
         if rz.shape[0] == 0:
             return -1, -1
@@ -578,22 +571,31 @@ class Munkres:
                 if not rzcov[i] and not czcov[i]:
                     return rz[i], cz[i]
             return -1, -1
+            
+    def __find_a_zero_where(self, rz, cz):
+        """Find the first uncovered element with value 0"""
+        rzcov = np.take(self.row_covered, rz)
+        czcov = np.take(self.col_covered, cz)
+        
+        ix = ((rzcov == 0) * (czcov == 0)).tostring().find('\x01')
+        if ix<0:
+            return -1, -1
+        else:
+            return rz[ix], cz[ix]
 
     def __find_star_in_row(self, row):
         """
         Find the first starred element in the specified row. Returns
         the column index, or -1 if no starred element was found.
         """
-        cx, = np.where(self.marked[row, :] == 1)
-        return -1 if len(cx) == 0 else cx[0]
+        return (self.marked[row, :] == 1).tostring().find('\x01')
 
     def __find_star_in_col(self, col):
         """
         Find the first starred element in the specified row. Returns
         the row index, or -1 if no starred element was found.
         """
-        rx, = np.where(self.marked[:, col] == 1)
-        return -1 if len(rx) == 0 else rx[0]
+        return (self.marked[:, col] == 1).tostring().find('\x01')
 
 
     def __find_prime_in_row(self, row):
@@ -601,16 +603,16 @@ class Munkres:
         Find the first prime element in the specified row. Returns
         the column index, or -1 if no starred element was found.
         """
-        cx, = np.where(self.marked[row, :] == 2)
-        return -1 if len(cx) == 0 else cx[0]
+        return (self.marked[row, :] == 2).tostring().find('\x01')
 
 
     def __convert_path(self, path, count):
-        for i in range(count+1):
-            if self.marked[path[i][0]][path[i][1]] == 1:
-                self.marked[path[i][0]][path[i][1]] = 0
+        ixs = [tuple(p) for p in path[:count+1]]
+        for ix in ixs:
+            if self.marked[ix] == 1:
+                self.marked[ix] = 0
             else:
-                self.marked[path[i][0]][path[i][1]] = 1
+                self.marked[ix] = 1
 
     def __clear_covers(self):
         self.row_covered.fill(False)
